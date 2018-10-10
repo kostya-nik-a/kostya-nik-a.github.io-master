@@ -1,25 +1,26 @@
 'use strict';
 
+let host;
 const errorMoreDrag = 'Чтобы загрузить новое изображение, пожалуйста, воспользуйтесь пунктом "Загрузить новое" в меню';
 const errorFileType = 'Неверный формат файла. Пожалуйста, выберите изображение в формате .jpg или .png.';
 
-function fetchRequest(url, method, body, header = null) {
-    const headers = header === null ? {} : {'Content-Type': 'application/x-www-form-urlencoded'} ;
+function fetchRequest(url, method, bodyRequest = null, header = null) {
+    const headers = header === null ? {} : {'Content-Type': 'application/x-www-form-urlencoded'};
+    const body = method === 'POST' ? bodyRequest : null;
     const requestParameters = {
-        method: method,
-        body: body,
-        headers: headers,
         credentials: 'same-origin',
-    }
+        method,
+        body,
+        headers
+    };
 
     return fetch(url, requestParameters)
         .then(res => {
             if (res.status >= 200 && res.status < 300) {
-                return res;
+                return res.json();
             }
             throw new Error(res.statusText);
         })
-        .then(res => res.json())
 }
 
 function sendFile(file) {
@@ -30,99 +31,83 @@ function sendFile(file) {
     formData.append('title', fileName);
     formData.append('image', file[0]);
 
-    loader.removeAttribute('style');
-
     if (fileType === "image/jpeg" || fileType === "image/png") {
-        fetchRequest(`${urlApi}/pic`, 'POST', formData)
-        .then(res => {
-            getFileInfo(res.id);
-        })
-        .catch(er => {
-            console.log(er);
-            hide(loader);
-        });
-    } else {
-        error.removeAttribute('style');
-        error.lastElementChild.textContent = errorFileType;
-        hide(loader);
-        errorRemove();
-        return;
+        fetchRequest(urlAPI, 'POST', formData)
+            .then((result) => {
+                fetchRequest(`${urlAPI}/${result.id}`, 'GET')
+                    .then((result) => {
+                        imageId = result.id;
+                        host = `${window.location.origin}${window.location.pathname}?id=${imageId}`;
+                        history.pushState(null, null, host);
+                        currentImage.src = result.url;
+                    })
+                .then(activateReviewing)
+            })
     }
-
 }
 
 function uploadFileFromButtom(event) {
+    event.preventDefault();
+
     const input = document.createElement('input');
     input.setAttribute('id', 'fileInput');
     input.setAttribute('type', 'file');
     input.setAttribute('accept', 'image/jpeg, image/png');
-    menu.appendChild(input);
+    input.click();
 
-    document.querySelector('#fileInput').addEventListener('change', event => {
+    showError();
+    delNodeElements('.comments__form');
+    input.addEventListener('change', event => {
         const files = Array.from(event.currentTarget.files);
+
+        if (canvas) {
+            canvas.style.background = '';
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+        currentImage.src = '';
+        imageLoader.removeAttribute('style');
         sendFile(files);
     });
-
-    input.click();
-    menu.removeChild(input);
 }
-
-let count = 0;
 
 function uploadFileFromDrop(event) {
     event.preventDefault();
-    hide(error);
-
     const files = Array.from(event.dataTransfer.files);
-    const fileName = files[0].name;
-    const fileType = files[0].type;
 
-    if (count > 0) {
-        error.removeAttribute('style');
-        error.lastElementChild.textContent = errorMoreDrag;
-        errorRemove();
+    if (currentImage.classList.contains('load')) {
+        showError(errorMoreDrag, true);
         return;
     }
 
-    count++;
-
-    if (fileType === 'image/jpeg' || fileType === 'image/png') {
-        sendFile(files);
-    } else {
-        error.removeAttribute('style');
-        errorRemove();
-        count = 0;
-    };
+    files.forEach(file => {
+        if ((file.type === 'image/jpeg') || (file.type === 'image/png')) {
+            imageLoader.removeAttribute('style');
+            sendFile(files);
+        } else {
+            showError(errorFileType, true);
+        }
+    });
 }
+
+function showError(errorText = '', showBool = false) {
+    errorTextNode.innerText = errorText;
+    showBool ? errorNode.style.display = '' : errorNode.style.display = 'none';
+}
+
+const copyUrl = document.querySelector('.menu_copy');
+
+copyUrl.addEventListener('click', function(event) {
+    menuUrl.select();
+    try {
+        var successful = document.execCommand('copy');
+        var msg = successful ? 'успешно ' : 'не';
+        console.log(`URL ${msg} скопирован`);
+    } catch(err) {
+        console.log('Ошибка копирования');
+    }
+    window.getSelection().removeAllRanges();
+});
 
 menuNewLoad.addEventListener('click', uploadFileFromButtom);
 wrapApp.addEventListener('drop', uploadFileFromDrop);
 wrapApp.addEventListener('dragover', event => event.preventDefault());
-
-function getFileInfo(id) {
-    const xhr = new XMLHttpRequest();
-
-    xhr.open(
-        'GET',
-        `${urlApi}/pic/${id}`,
-        false
-    );
-    xhr.send();
-
-    dataParse = JSON.parse(xhr.responseText);
-    host = `${window.location.origin}${window.location.pathname}?id=${dataParse.id}`;
-
-    wssConnection();
-    setCurrentImage(dataParse);
-    currentImage.src = dataParse.url;
-    menuBurger.style.cssText = '';
-    showMenu();
-
-    currentImage.addEventListener('load', () => {
-        hide(loader);
-        createWrapForCanvasComment();
-        createCanvas();
-    });
-
-    updateCommentForm(dataParse.comments);
-}
